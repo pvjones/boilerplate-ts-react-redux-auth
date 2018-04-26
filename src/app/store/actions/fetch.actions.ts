@@ -1,33 +1,41 @@
 import fetch from 'isomorphic-fetch'
 import { Map } from 'immutable'
 import { selectSessionToken } from '../selectors/security.selectors'
-import { setAlertError } from './appState.actions'
+import { setAlert } from './appState.actions'
 import { clearSession } from './security.actions'
 import getConfig from '../../../utils/config'
+import { Dispatch } from 'react-redux'
+import { ThunkAction } from '../store.models'
 
 const api = getConfig().api
 const apiUrl = `${api.host}:${api.port}/${api.baseUrl}`
 
-const standardHeaders = {
+const standardHeaders: any = {
   'Access-Control-Allow-Origin': '*',
   'Content-Type': 'application/json',
   Accept: 'application/json',
 }
 
-let blockedMap = Map()
-let requestMap = Map()
+export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
+export type RequestMap = Map<Method, Map<string, Promise<any>>>
+type BlockedMap = Map<Method, Map<string, number>>
+
+let blockedMap: BlockedMap = Map()
+let requestMap: RequestMap = Map()
 
 const blockedCallLimit = 3
 const throttledRequestTimeLimit = 100
 
-const blockURL = (method, url) => {
-  const count = blockedMap.getIn([method, url], 0)
+const blockURL = (method: Method, url: string): void => {
+  const count = blockedMap.getIn([method, url], 0) as number
   blockedMap = blockedMap.setIn([method, url], count + 1)
 }
 
-const isURLBlocked = (method, url) => blockedMap.getIn([method, url], 0) >= blockedCallLimit
+const isURLBlocked = (method: Method, url: string): boolean => {
+  return blockedMap.getIn([method, url], 0) >= blockedCallLimit
+}
 
-const processResponse = (response, method, url, dispatch) => {
+const processResponse = (response: Response, method: Method, url: string, dispatch: Dispatch): Promise<any> => {
   if (response.ok) {
     return response.status === 204 ? Promise.resolve('') : response.json()
   }
@@ -45,32 +53,34 @@ const processResponse = (response, method, url, dispatch) => {
     })
 }
 
-const getEmptyPromise = () => new Promise(() => {
+const getEmptyPromise = <R>(): Promise<R> => new Promise<R>(() => {
   // Need to return an empty promise so that only the first promise can be resolved.
   // Otherwise multiple unnecessary rerenders will result.
 })
 
-const getFetchPromise = (method, url, payload, dispatch) => new Promise(resolve => {
-  fetch(`${apiUrl}${url}`, payload)
-    .then(response => resolve(processResponse(response, method, url, dispatch)))
-    .catch(error => dispatch(setAlertError(error.message)))
-})
+const getFetchPromise = <R>(method: Method, url: string, payload: RequestInit, dispatch: Dispatch): Promise<R> =>
+  new Promise<R>(resolve => {
+    fetch(`${apiUrl}${url}`, payload)
+      .then(response => resolve(processResponse(response, method, url, dispatch)))
+      .catch(error => dispatch(setAlert(error.message, error.status)))
+  })
 
-const getThrottledFetchPromise = (method, url, payload, dispatch) => new Promise(resolve => {
-  fetch(`${apiUrl}${url}`, payload)
-    .then(response => {
-      setTimeout(() => {
+const getThrottledFetchPromise = <R>(method: Method, url: string, payload: RequestInit, dispatch: Dispatch): Promise<R> =>
+  new Promise<R>(resolve => {
+    fetch(`${apiUrl}${url}`, payload)
+      .then(response => {
+        setTimeout(() => {
+          requestMap = requestMap.deleteIn([method, url])
+        }, throttledRequestTimeLimit)
+        return resolve(processResponse(response, method, url, dispatch))
+      })
+      .catch(error => {
+        dispatch(setAlert(error.message, error.status))
         requestMap = requestMap.deleteIn([method, url])
-      }, throttledRequestTimeLimit)
-      return resolve(processResponse(response, method, url, dispatch))
-    })
-    .catch(error => {
-      dispatch(setAlertError(error.message))
-      requestMap = requestMap.deleteIn([method, url])
-    })
-})
+      })
+  })
 
-const getHeaders = (authToken, extraHeaders = {}) => {
+const getHeaders = (authToken: string, extraHeaders: Record<string, any> = {}): Headers => {
   const authHeader = authToken ? { authorization: authToken } : {}
 
   const init = {
@@ -82,8 +92,9 @@ const getHeaders = (authToken, extraHeaders = {}) => {
   return new Headers(init)
 }
 
-const requestWithBody = (method, url, body, extraHeaders) =>
-  (dispatch, getStore) => {
+export type FetchActionReturn<R> = ThunkAction<Promise<R>>
+const requestWithBody = <R>(method: Method, url: string, body: any, extraHeaders: any): FetchActionReturn<R> =>
+  (dispatch, getStore): Promise<R> => {
     if (isURLBlocked(method, url)) {
       throw new Error(`Blocked attempt on ${url}`)
     }
@@ -98,13 +109,14 @@ const requestWithBody = (method, url, body, extraHeaders) =>
       ...bodyProp,
     }
 
-    const promise = getFetchPromise(method, url, payload, dispatch)
+    const promise = getFetchPromise<R>(method, url, payload, dispatch)
 
     return promise
   }
 
-const get = url =>
-  (dispatch, getStore) => {
+type FetchGetAction<R> = ThunkAction<Promise<R>>
+const get = <R>(url: string): FetchGetAction<R> =>
+  (dispatch, getStore): Promise<R> => {
     const method = 'GET'
 
     if (requestMap.getIn([method, url])) {
@@ -119,7 +131,7 @@ const get = url =>
       headers,
     }
 
-    const promise = getThrottledFetchPromise(method, url, payload, dispatch)
+    const promise = getThrottledFetchPromise<R>(method, url, payload, dispatch)
     requestMap = requestMap.setIn([method, url], promise)
 
     return promise
@@ -127,7 +139,7 @@ const get = url =>
 
 export default {
   get,
-  post: (url, body, extraHeaders) => requestWithBody('POST', url, body, extraHeaders),
-  put: (url, body, extraHeaders) => requestWithBody('PUT', url, body, extraHeaders),
-  delete: (url, body, extraHeaders) => requestWithBody('DELETE', url, body, extraHeaders),
+  post: <R>(url: string, body?: any, extraHeaders?: any): FetchActionReturn<R> => requestWithBody('POST', url, body, extraHeaders),
+  put: <R>(url: string, body?: any, extraHeaders?: any): FetchActionReturn<R> => requestWithBody('PUT', url, body, extraHeaders),
+  delete: <R>(url: string, body?: any, extraHeaders?: any): FetchActionReturn<R> => requestWithBody('DELETE', url, body, extraHeaders),
 }

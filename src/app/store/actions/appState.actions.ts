@@ -1,6 +1,7 @@
 import actionDefs from './actionDefs'
+import { Action } from './actions.models'
 
-export const setAlert = (message, status) => {
+export const setAlert = (message: string, status?: number): Action => {
   return {
     type: actionDefs.AppState.Alert,
     payload: {
@@ -10,7 +11,7 @@ export const setAlert = (message, status) => {
   }
 }
 
-export const clearAlert = () => ({
+export const clearAlert = (): Action => ({
   type: actionDefs.AppState.Alert,
   payload: {},
 })

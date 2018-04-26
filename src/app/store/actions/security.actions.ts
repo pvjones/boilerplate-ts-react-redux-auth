@@ -1,17 +1,18 @@
 import actionDefs from './actionDefs'
 import fetch from './fetch.actions'
-import { setAlertError } from './appState.actions'
+import { setAlert } from './appState.actions'
+import { Action, ThunkAction } from '../store.models'
 
-export const setSession = session => ({
+export const setSession = (session: any): Action => ({
   type: actionDefs.Security.Session.Set,
   payload: session,
 })
 
-export const clearSession = () => ({
+export const clearSession = (): Action => ({
   type: actionDefs.Security.Session.Clear,
 })
 
-export const signIn = (email, password) =>
+export const signIn = (email: string, password: string): ThunkAction =>
   dispatch => {
     const body = { email, password }
 
@@ -24,13 +25,13 @@ export const signIn = (email, password) =>
       })
   }
 
-export const signOut = () =>
+export const signOut = (): ThunkAction =>
   dispatch =>
     dispatch(fetch.post('/auth/logout'))
       .then(() => dispatch(clearSession()))
-      .catch(error => dispatch(setAlertError(error.message)))
+      .catch(error => dispatch(setAlert(error.message)))
 
-export const registerUser = (email, firstName, lastName, password) =>
+export const registerUser = (email: string, firstName: string, lastName: string, password: string): ThunkAction =>
   dispatch => {
     const body = {
       email,
@@ -42,16 +43,3 @@ export const registerUser = (email, firstName, lastName, password) =>
       .then(() => 'success')
       .catch(() => 'error')
   }
-
-
-export const setUserDetails = user => ({
-  type: actionDefs.Security.Permissions.SetUserDetails,
-  payload: user,
-})
-
-export const fetchUserById = id =>
-  dispatch =>
-    dispatch(fetch.get(`/users/${id}`))
-      .then(response => {
-        dispatch(setUserDetails(response))
-      })
